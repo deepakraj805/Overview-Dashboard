@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sales Pipeline — Live Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f4f2ed;
+    --surface: #ffffff;
+    --surface2: #f9f8f5;
+    --border: rgba(0,0,0,0.08);
+    --border-strong: rgba(0,0,0,0.14);
+    --text: #1a1814;
+    --text2: #6b6860;
+    --text3: #a8a49e;
+    --accent: #c84b2f;
+    --blue: #2563a8; --blue-bg: #eef3fb;
+    --green: #1a7a4a; --green-bg: #eaf5ef;
+    --amber: #a0620a; --amber-bg: #fdf4e3;
+    --purple: #5b3fa6; --purple-bg: #f0ecfb;
+    --radius: 10px; --radius-lg: 16px;
+  }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 14px; line-height: 1.5; }
+
+  /* ── LOADING ── */
+  #loading-screen {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; background: var(--bg); z-index: 100;
+    transition: opacity 0.4s;
+  }
+  #loading-screen.hidden { opacity: 0; pointer-events: none; }
+  .loader-box { text-align: center; }
+  .spinner {
+    width: 40px; height: 40px; border: 3px solid var(--border-strong);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.8s linear infinite; margin: 0 auto 1.25rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loader-title { font-size: 16px; font-weight: 500; color: var(--text); margin-bottom: 6px; }
+  .loader-sub { font-size: 12px; color: var(--text3); }
+
+  /* ── ERROR SCREEN ── */
+  #error-screen {
+    position: fixed; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; background: var(--bg); z-index: 99; padding: 2rem;
+  }
+  #error-screen.show { display: flex; }
+  .error-box {
+    width: min(500px, 90vw); background: var(--surface);
+    border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
+    padding: 2.5rem 2rem; text-align: center;
+  }
+  .error-icon { font-size: 36px; margin-bottom: 1rem; }
+  .error-title { font-size: 17px; font-weight: 600; margin-bottom: 0.5rem; }
+  .error-msg { font-size: 13px; color: var(--text2); margin-bottom: 1.5rem; line-height: 1.6; }
+  .retry-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--accent); color: white; border: none; border-radius: 8px;
+    padding: 0.65rem 1.5rem; font-size: 13px; font-weight: 500;
+    cursor: pointer; font-family: inherit; transition: background 0.15s;
+  }
+  .retry-btn:hover { background: #b03e24; }
+
+  /* ── LAYOUT ── */
+  #dashboard { display: none; max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem 3rem; }
+  #dashboard.visible { display: block; }
+
+  /* ── HEADER ── */
+  .header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 2rem; gap: 1rem; flex-wrap: wrap; }
+  .header-left h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
+  .header-left p { font-size: 12px; color: var(--text3); margin-top: 3px; font-family: 'DM Mono', monospace; }
+  .header-right { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .hbtn {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--surface); border: 1px solid var(--border-strong);
+    padding: 0.45rem 0.9rem; border-radius: 8px;
+    font-size: 12px; font-weight: 500; color: var(--text2);
+    cursor: pointer; font-family: inherit; transition: background 0.15s; white-space: nowrap;
+    text-decoration: none;
+  }
+  .hbtn:hover { background: var(--surface2); }
+  .hbtn svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #1a7a4a; animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ── KPI ── */
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 1.5rem; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem 1.2rem; position: relative; overflow: hidden; }
+  .kpi::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; border-radius:10px 10px 0 0; }
+  .kpi.k1::before{background:var(--blue)}.kpi.k2::before{background:var(--accent)}.kpi.k3::before{background:var(--green)}.kpi.k4::before{background:var(--purple)}
+  .kpi-label { font-size:11px; color:var(--text2); font-weight:500; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; }
+  .kpi-val { font-size:28px; font-weight:600; line-height:1; font-family:'DM Mono',monospace; }
+  .kpi-sub { font-size:11px; color:var(--text3); margin-top:5px; }
+
+  /* ── CARDS ── */
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:1.25rem; }
+  .card-title { font-size:11px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:1rem; display:flex; align-items:center; gap:8px; }
+  .card-title svg { width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+
+  /* ── PIPE BARS ── */
+  .pipe-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .pipe-label { font-size:12px; color:var(--text2); width:110px; flex-shrink:0; }
+  .pipe-track { flex:1; height:6px; background:var(--bg); border-radius:3px; overflow:hidden; }
+  .pipe-fill { height:100%; border-radius:3px; transition:width 0.6s ease; }
+  .pipe-n { font-size:11px; font-weight:600; width:14px; text-align:right; font-family:'DM Mono',monospace; }
+
+  /* ── VISITS ── */
+  .visit-item { display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-bottom:1px solid var(--border); }
+  .visit-item:last-child { border-bottom:none; }
+  .visit-dot { width:8px; height:8px; border-radius:50%; margin-top:5px; flex-shrink:0; }
+  .visit-name { font-size:13px; font-weight:500; }
+  .visit-meta { font-size:11px; color:var(--text3); margin-top:1px; }
+  .visit-note { font-size:11px; color:var(--text2); margin-top:2px; }
+  .visit-badge { margin-left:auto; font-size:10px; font-weight:600; padding:2px 7px; border-radius:5px; white-space:nowrap; font-family:'DM Mono',monospace; }
+
+  /* ── TABLES ── */
+  .data-table { width:100%; border-collapse:collapse; font-size:12px; }
+  .data-table th { text-align:left; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text3); padding:0 8px 8px 0; border-bottom:1px solid var(--border-strong); }
+  .data-table td { padding:8px 8px 8px 0; border-bottom:1px solid var(--border); color:var(--text2); vertical-align:middle; }
+  .data-table tr:last-child td { border-bottom:none; }
+  .data-table td.name { color:var(--text); font-weight:500; }
+  .data-table td.mono { font-family:'DM Mono',monospace; font-size:11px; color:var(--text3); }
+
+  /* ── PILLS ── */
+  .pill { display:inline-block; font-size:10px; font-weight:600; padding:2px 8px; border-radius:5px; letter-spacing:0.2px; }
+  .pill-new{background:var(--blue-bg);color:var(--blue)}
+  .pill-follow{background:var(--amber-bg);color:var(--amber)}
+  .pill-qual{background:var(--green-bg);color:var(--green)}
+  .pill-prop{background:var(--purple-bg);color:var(--purple)}
+  .pill-won{background:var(--green-bg);color:var(--green)}
+  .pill-rel{background:var(--green-bg);color:var(--green)}
+  .pill-wait{background:var(--amber-bg);color:var(--amber)}
+  .pill-sent{background:var(--blue-bg);color:var(--blue)}
+  .pill-default{background:var(--surface2);color:var(--text2)}
+
+  .chart-wrap { position:relative; width:100%; height:170px; margin-top:1rem; }
+  .empty { color:var(--text3); font-size:12px; text-align:center; padding:1.5rem 0; }
+  .footer { margin-top:2rem; font-size:11px; color:var(--text3); text-align:center; font-family:'DM Mono',monospace; }
+
+  /* ── NOTICE BANNER ── */
+  .notice {
+    background: var(--amber-bg); border: 1px solid #f0c97a; border-radius: var(--radius);
+    padding: 0.75rem 1rem; font-size: 12px; color: var(--amber);
+    margin-bottom: 1.25rem; display: none; align-items: center; gap: 8px;
+  }
+  .notice.show { display: flex; }
+
+  @media(max-width:700px){ .kpi-grid{grid-template-columns:1fr 1fr} .row2{grid-template-columns:1fr} }
+  @media(max-width:420px){ .kpi-grid{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loading-screen">
+  <div class="loader-box">
+    <div class="spinner"></div>
+    <div class="loader-title">Loading dashboard…</div>
+    <div class="loader-sub" id="load-msg">Fetching latest data from Google Sheets</div>
+  </div>
+</div>
+
+<!-- ERROR -->
+<div id="error-screen">
+  <div class="error-box">
+    <div class="error-icon">⚠️</div>
+    <div class="error-title">Could not load data</div>
+    <div class="error-msg" id="error-msg">
+      Make sure the Google Sheet is published to the web (File → Share → Publish to web → Each sheet as CSV).
+    </div>
+    <button class="retry-btn" onclick="loadAll()">
+      <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:white;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.54"/></svg>
+      Retry
+    </button>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+  <div class="notice" id="publish-notice">
+    ℹ️ Some sheets returned no data — confirm each tab is published: <strong>File → Share → Publish to web → comma-separated values</strong>
+  </div>
+
+  <div class="header">
+    <div class="header-left">
+      <h1>Sales Pipeline Dashboard</h1>
+      <p id="file-info">—</p>
+    </div>
+    <div class="header-right">
+      <div class="hbtn"><div class="live-dot"></div> Live</div>
+      <button class="hbtn" onclick="loadAll()">
+        <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.54"/></svg>
+        Refresh
+      </button>
+      <a class="hbtn" href="https://docs.google.com/spreadsheets/d/15_QW2QSF2BqrsQC5SZFU8GjI_mOBorto/edit" target="_blank">
+        <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        Open Sheet
+      </a>
+    </div>
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi k1"><div class="kpi-label">Total leads</div><div class="kpi-val" id="kpi-leads">—</div><div class="kpi-sub" id="kpi-leads-sub">Active leads tracked</div></div>
+    <div class="kpi k2"><div class="kpi-label">Purchase requests</div><div class="kpi-val" id="kpi-prs">—</div><div class="kpi-sub" id="kpi-prs-sub">Quotations in progress</div></div>
+    <div class="kpi k3"><div class="kpi-label">Purchase orders</div><div class="kpi-val" id="kpi-pos">—</div><div class="kpi-sub" id="kpi-pos-sub">Orders tracked</div></div>
+    <div class="kpi k4"><div class="kpi-label">Site visits</div><div class="kpi-val" id="kpi-visits">—</div><div class="kpi-sub" id="kpi-visits-sub">Field visits logged</div></div>
+  </div>
+
+  <div class="row2">
+    <div class="card">
+      <div class="card-title"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Lead pipeline</div>
+      <div id="pipeline-bars"></div>
+      <div class="chart-wrap"><canvas id="pipeChart" role="img" aria-label="Donut chart of lead pipeline stages"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>Site visits</div>
+      <div id="visits-list"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-title"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Purchase requests tracker</div>
+    <table class="data-table"><thead><tr><th>PR No</th><th>Description</th><th>Customer</th><th>Status</th></tr></thead><tbody id="pr-tbody"></tbody></table>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><svg viewBox="0 0 24 24"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>Purchase orders</div>
+    <table class="data-table"><thead><tr><th>Date</th><th>Customer</th><th>PR ref</th><th>Description</th><th>Stage</th></tr></thead><tbody id="po-tbody"></tbody></table>
+  </div>
+
+  <div class="footer" id="footer-ts">—</div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════
+//  CONFIG — Spreadsheet ID extracted from your URL
+// ══════════════════════════════════════════════════════
+const SHEET_ID = '15_QW2QSF2BqrsQC5SZFU8GjI_mOBorto';
+
+// Tab names exactly as they appear in your Google Sheet
+// (case-sensitive — check the tab labels at the bottom)
+const TABS = {
+  travel: 'Travel',
+  lead:   'LEAD',
+  pr:     'PR',
+  po:     'PO',
+};
+// ══════════════════════════════════════════════════════
+
+let chartInstance = null;
+
+// Build a published-CSV URL for a given sheet tab name
+function csvUrl(tabName) {
+  return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+}
+
+// Fetch a tab and parse CSV → array of objects (first row = headers)
+async function fetchTab(tabName) {
+  const url = csvUrl(tabName);
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} for tab "${tabName}"`);
+  const text = await resp.text();
+  return parseCSV(text);
+}
+
+// Minimal CSV parser that handles quoted fields
+function parseCSV(text) {
+  const lines = [];
+  let cur = '', inQ = false, row = [];
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') {
+      if (inQ && text[i+1] === '"') { cur += '"'; i++; }
+      else inQ = !inQ;
+    } else if (c === ',' && !inQ) {
+      row.push(cur.trim()); cur = '';
+    } else if ((c === '\n' || c === '\r') && !inQ) {
+      if (c === '\r' && text[i+1] === '\n') i++;
+      row.push(cur.trim()); cur = '';
+      lines.push(row); row = [];
+    } else cur += c;
+  }
+  if (cur || row.length) { row.push(cur.trim()); lines.push(row); }
+
+  if (lines.length < 2) return [];
+  const headers = lines[0].map(h => h.replace(/^"|"$/g, '').trim());
+  return lines.slice(1)
+    .filter(r => r.some(c => c !== ''))
+    .map(r => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = (r[i] || '').replace(/^"|"$/g, '').trim() || null; });
+      return obj;
+    });
+}
+
+// ── LOAD ALL TABS ──
+async function loadAll() {
+  show('loading-screen', 'Fetching latest data from Google Sheets…');
+  hide('error-screen'); hide('dashboard');
+
+  try {
+    const [travels, leads, prs, pos] = await Promise.all([
+      fetchTab(TABS.travel),
+      fetchTab(TABS.lead),
+      fetchTab(TABS.pr),
+      fetchTab(TABS.po),
+    ]);
+    renderDashboard({ travels, leads, prs, pos });
+  } catch(e) {
+    console.error(e);
+    hide('loading-screen');
+    document.getElementById('error-msg').textContent =
+      `${e.message}. Make sure the sheet is published: File → Share → Publish to web → Each tab as CSV.`;
+    document.getElementById('error-screen').classList.add('show');
+  }
+}
+
+// ── COLOUR HELPERS ──
+const STATUS_COLORS = {
+  'new':           { fill:'#2563a8', bar:'#2563a8', pill:'pill-new' },
+  'follow up':     { fill:'#e8956b', bar:'#a0620a', pill:'pill-follow' },
+  'qualified':     { fill:'#1a7a4a', bar:'#1a7a4a', pill:'pill-qual' },
+  'proposal sent': { fill:'#5b3fa6', bar:'#5b3fa6', pill:'pill-prop' },
+  'closed won':    { fill:'#1a7a4a', bar:'#1a7a4a', pill:'pill-won' },
+};
+function si(s) {
+  return STATUS_COLORS[String(s||'').toLowerCase().trim()] || {fill:'#a8a49e',bar:'#a8a49e',pill:'pill-default'};
+}
+function pillPR(s){ const v=String(s||'').toLowerCase(); if(v.includes('wait'))return 'pill-wait'; if(v.includes('sent')||v.includes('submit'))return 'pill-sent'; if(v.includes('receiv'))return 'pill-qual'; return 'pill-default'; }
+function pillPO(s){ const v=String(s||'').toLowerCase(); if(v.includes('releas')||v.includes('complet'))return 'pill-rel'; if(v.includes('process'))return 'pill-follow'; return 'pill-default'; }
+function fmtDate(v){ if(!v)return'—'; const d=new Date(v); return isNaN(d)?String(v):d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
+function trunc(s,n){ const t=String(s||''); return t.length>n?t.slice(0,n)+'…':t; }
+
+// ── RENDER ──
+function renderDashboard({ travels, leads, prs, pos }) {
+  // Filter to rows that have a key identifier
+  const aLeads  = leads.filter(r => r['Lead No']);
+  const aPRs    = prs.filter(r => r['Internal PR No']);
+  const aPOs    = pos.filter(r => r['Customer Name'] && r['Production Stage']);
+  const aVisits = travels.filter(r => r['Lead No']);
+
+  // Warn if any sheet came back empty (likely not published)
+  const anyEmpty = [aLeads, aPRs, aPOs, aVisits].some(a => a.length === 0);
+  document.getElementById('publish-notice').classList.toggle('show', anyEmpty);
+
+  // KPIs
+  set('kpi-leads', aLeads.length);
+  set('kpi-prs',   aPRs.length);
+  set('kpi-pos',   aPOs.length);
+  set('kpi-visits',aVisits.length);
+
+  // Pipeline bars + chart
+  const sc = {};
+  aLeads.forEach(r => { const s = String(r['Lead Status']||'Unknown').trim(); sc[s]=(sc[s]||0)+1; });
+  const max = Math.max(...Object.values(sc), 1);
+  set('pipeline-bars', Object.entries(sc).map(([s,n]) => {
+    const c=si(s); const pct=Math.round(n/max*100);
+    return `<div class="pipe-row"><span class="pipe-label">${s}</span><div class="pipe-track"><div class="pipe-fill" style="width:${pct}%;background:${c.bar}"></div></div><span class="pipe-n">${n}</span></div>`;
+  }).join('') || '<div class="empty">No lead data</div>');
+
+  if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+  if (Object.keys(sc).length) {
+    chartInstance = new Chart(document.getElementById('pipeChart'), {
+      type: 'doughnut',
+      data: {
+        labels: Object.keys(sc),
+        datasets: [{ data: Object.values(sc), backgroundColor: Object.keys(sc).map(l=>si(l).fill), borderWidth:3, borderColor:'#fff' }]
+      },
+      options: { responsive:true, maintainAspectRatio:false, cutout:'68%', plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>` ${c.label}: ${c.raw}`}} } }
+    });
+  }
+
+  // Visits
+  const vc=['#2563a8','#a0620a','#1a7a4a','#5b3fa6','#c84b2f','#6b6860'];
+  set('visits-list', aVisits.slice(0,6).map((r,i) => {
+    const c=vc[i%vc.length];
+    return `<div class="visit-item">
+      <div class="visit-dot" style="background:${c}"></div>
+      <div style="flex:1;min-width:0">
+        <div class="visit-name">${r['Plant Name Location']||'—'}</div>
+        <div class="visit-meta">${[r['Meeting Person and Designation'],fmtDate(r['Schedule Date'])].filter(Boolean).join(' · ')}</div>
+        ${r['VISIT Discription']?`<div class="visit-note">${trunc(r['VISIT Discription'],80)}</div>`:''}
+      </div>
+      <span class="visit-badge" style="background:${c}18;color:${c}">${r['Lead No']||''}</span>
+    </div>`;
+  }).join('') || '<div class="empty">No visits</div>');
+
+  // PRs
+  set('pr-tbody', aPRs.map(r => {
+    const quot = r['Quotation Status'] || (r['Remark 3']?'Quotation sent':'In progress');
+    return `<tr><td class="mono">${r['Internal PR No']||'—'}</td><td class="name">${trunc(r['PR Description']||'—',40)}</td><td>${trunc(r['Customer Name']||'—',35)}</td><td><span class="pill ${pillPR(quot)}">${quot}</span></td></tr>`;
+  }).join('') || '<tr><td colspan="4" class="empty">No PR data</td></tr>');
+
+  // POs
+  set('po-tbody', aPOs.map(r => `<tr>
+    <td class="mono">${fmtDate(r['Date'])}</td>
+    <td class="name">${trunc(r['Customer Name']||'—',28)}</td>
+    <td class="mono">${r['Internal PR']||'—'}</td>
+    <td>${trunc(r['Short Description']||'—',35)}</td>
+    <td><span class="pill ${pillPO(r['Production Stage'])}">${r['Production Stage']||'—'}</span></td>
+  </tr>`).join('') || '<tr><td colspan="5" class="empty">No PO data</td></tr>');
+
+  const now = new Date().toLocaleString();
+  set('file-info', `Google Sheets · refreshed ${now}`);
+  set('footer-ts', `Live data · Last refreshed: ${now} · Auto-refresh every 5 min`);
+
+  hide('loading-screen');
+  const dash = document.getElementById('dashboard');
+  dash.style.display = 'block'; dash.classList.add('visible');
+
+  // Auto-refresh every 5 minutes
+  clearTimeout(window._refreshTimer);
+  window._refreshTimer = setTimeout(loadAll, 5*60*1000);
+}
+
+function set(id,html){ const el=document.getElementById(id); if(el) el.innerHTML=html; }
+function show(id, msg){ const el=document.getElementById(id); if(el){ el.classList.remove('hidden'); el.style.display=''; if(msg){ const m=document.getElementById('load-msg'); if(m)m.textContent=msg; } } }
+function hide(id){ const el=document.getElementById(id); if(el){ el.classList.add('hidden'); el.style.display='none'; } }
+
+// Kick off on load
+loadAll();
+</script>
+</body>
+</html>
