@@ -148,6 +148,7 @@
   .pill-wait{background:var(--amber-bg);color:var(--amber)}
   .pill-sent{background:var(--blue-bg);color:var(--blue)}
   .pill-default{background:var(--surface3);color:var(--text2)}
+  .pill-yts{background:rgba(74,143,212,0.12);color:#6ba3d6;border:1px solid rgba(74,143,212,0.25)}
 
   .chart-wrap { position:relative; width:100%; height:165px; margin-top:1rem; }
   .empty { color:var(--text3); font-size:12px; text-align:center; padding:1.5rem 0; }
@@ -241,6 +242,7 @@
       <option value="">All PO Stages</option>
       <option value="releas">Released / Completed</option>
       <option value="process">Processing</option>
+      <option value="yts">YTS</option>
     </select>
     <button class="clear-btn" onclick="clearAllFilters()">✕ Clear</button>
     <span class="filter-count" id="filter-summary"></span>
@@ -307,6 +309,7 @@
         <option value="">All stages</option>
         <option value="releas">Released / Completed</option>
         <option value="process">Processing</option>
+        <option value="yts">YTS</option>
       </select>
     </div>
     <table class="data-table">
@@ -393,7 +396,7 @@ const STATUS_COLORS = {
 };
 function si(s){return STATUS_COLORS[String(s||'').toLowerCase().trim()]||{fill:'#545868',bar:'#545868',pill:'pill-default'};}
 function pillPR(s){const v=String(s||'').toLowerCase();if(v.includes('wait'))return'pill-wait';if(v.includes('sent')||v.includes('submit')||v.includes('quotation'))return'pill-sent';if(v.includes('receiv'))return'pill-qual';return'pill-default';}
-function pillPO(s){const v=String(s||'').toLowerCase();if(v.includes('releas')||v.includes('complet'))return'pill-rel';if(v.includes('process'))return'pill-follow';return'pill-default';}
+function pillPO(s){const v=String(s||'').toLowerCase();if(v.includes('releas')||v.includes('complet')||v.includes('done')||v.includes('finish'))return'pill-rel';if(v.includes('process')||v.includes('progress')||v.includes('manufactur')||v.includes('produc'))return'pill-follow';if(v==='yts'||v.includes('yet to')||v.includes('pending'))return'pill-yts';return'pill-default';}
 function fmtDate(v){if(!v)return'—';const d=new Date(v);return isNaN(d)?String(v):d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}
 function trunc(s,n){const t=String(s||'');return t.length>n?t.slice(0,n)+'…':t;}
 function matches(r,q){if(!q)return true;q=q.toLowerCase();return Object.values(r).some(v=>v&&String(v).toLowerCase().includes(q));}
@@ -401,7 +404,7 @@ function matches(r,q){if(!q)return true;q=q.toLowerCase();return Object.values(r
 function renderDashboard({travels,leads,prs,pos}) {
   _data.aLeads  = leads.filter(r=>r['Lead No']);
   _data.aPRs    = prs.filter(r=>r['Internal PR No']);
-  _data.aPOs    = pos.filter(r=>r['Customer Name']&&r['Production Stage']);
+  _data.aPOs    = pos.filter(r=>r['Customer Name']);
   _data.aVisits = travels.filter(r=>r['Lead No']);
 
   const anyEmpty=[_data.aLeads,_data.aPRs,_data.aPOs,_data.aVisits].some(a=>a.length===0);
@@ -518,7 +521,16 @@ function renderPOs() {
   let rows=_data.aPOs.filter(r=>{
     if(!matches(r,q))return false;
     if(!matches(r,gq))return false;
-    if(activeFilter&&!String(r['Production Stage']||'').toLowerCase().includes(activeFilter))return false;
+    if(activeFilter){
+      const stage=String(r['Production Stage']||'').toLowerCase();
+      const filterMap={
+        'releas':['releas','complet','done','finish'],
+        'process':['process','progress','manufactur','produc'],
+        'yts':['yts','yet to','pending','not start']
+      };
+      const keywords=filterMap[activeFilter]||[activeFilter];
+      if(!keywords.some(k=>stage.includes(k)))return false;
+    }
     return true;
   });
   const {col,dir}=_sort.po;
