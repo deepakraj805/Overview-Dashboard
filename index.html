@@ -453,30 +453,41 @@ let chartInstance = null;
 let _data = { aLeads:[], aPRs:[], aPOs:[], aVisits:[] };
 let _sort = { pr:{col:null,dir:1}, po:{col:null,dir:1} };
 
-function csvUrl(t){ return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(t)}`; }
-
-async function fetchTab(t){
-  const r=await fetch(csvUrl(t));
-  if(!r.ok) throw new Error(`HTTP ${r.status} for tab "${t}"`);
-  return parseCSV(await r.text());
-}
-
-function parseCSV(text){
-  const lines=[]; let cur='',inQ=false,row=[];
-  for(let i=0;i<text.length;i++){
-    const c=text[i];
-    if(c==='"'){ if(inQ&&text[i+1]==='"'){cur+='"';i++;}else inQ=!inQ; }
-    else if(c===','&&!inQ){ row.push(cur.trim());cur=''; }
-    else if((c==='
-'||c==='')&&!inQ){ if(c===''&&text[i+1]==='
-')i++; row.push(cur.trim());cur='';lines.push(row);row=[]; }
-    else cur+=c;
-  }
-  if(cur||row.length){row.push(cur.trim());lines.push(row);}
-  if(lines.length<2) return [];
-  const h=lines[0].map(x=>x.replace(/^"|"$/g,'').trim());
-  return lines.slice(1).filter(r=>r.some(c=>c!=='')).map(r=>{
-    const o={};h.forEach((hh,i)=>{o[hh]=(r[i]||'').replace(/^"|"$/g,'').trim()||null;});return o;
+// JSONP-based fetch — works on GitHub Pages (no CORS issues)
+function fetchTab(tabName){
+  return new Promise((resolve, reject) => {
+    const cbName = 'cb_' + Math.random().toString(36).slice(2);
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&callback=${cbName}&sheet=${encodeURIComponent(tabName)}`;
+    const script = document.createElement('script');
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timeout loading tab "${tabName}"`));
+    }, 15000);
+    function cleanup() {
+      clearTimeout(timeout);
+      delete window[cbName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+    }
+    window[cbName] = function(data) {
+      cleanup();
+      try {
+        const cols = data.table.cols.map(c => c.label || c.id || '');
+        const rows = (data.table.rows || []).map(row => {
+          const obj = {};
+          cols.forEach((col, i) => {
+            const cell = row.c && row.c[i];
+            obj[col] = (cell && cell.v != null) ? String(cell.v).trim() || null : null;
+          });
+          return obj;
+        });
+        resolve(rows.filter(r => Object.values(r).some(v => v)));
+      } catch(e) {
+        reject(new Error(`Parse error for tab "${tabName}": ${e.message}`));
+      }
+    };
+    script.onerror = () => { cleanup(); reject(new Error(`Failed to load tab "${tabName}" — check sheet is published`)); };
+    script.src = url;
+    document.head.appendChild(script);
   });
 }
 
